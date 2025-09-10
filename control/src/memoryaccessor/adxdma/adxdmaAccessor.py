@@ -1,11 +1,10 @@
 from memoryaccessor.base.base_mem_accessor import MemoryAccessor, MemoryAccessorException
-from memoryaccessor.AdxdmaLib import AdxdmaLib, COMPLETION
+from memoryaccessor.adxdma.AdxdmaLib import AdxdmaLib, COMPLETION
 from ctypes import byref
-from ctypes import c_int, c_uint32, c_size_t
+from ctypes import c_int, c_uint32
 
 import logging
 import math
-
 
 
 class AdxdmaException(MemoryAccessorException):
@@ -82,7 +81,8 @@ class AdxdmaAccessor(MemoryAccessor):
         self._testStatus(self.lib.ADXDMA_Close(self.deviceHandle))
 
     def __del__(self):
-        self.close()
+        if self.isConnected:
+            self.close()
 
     def read(self, addr: int, size: int) -> bytearray:
         if not self.isConnected:
