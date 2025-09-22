@@ -68,7 +68,7 @@ class AdxdmaAccessor(MemoryAccessor):
         self.deviceHandle = c_int()
         self.windowHandle = c_int()
 
-    def initialise(self) -> None:
+    def open(self) -> None:
 
         self._testStatus(self.lib.ADXDMA_Open(self.device_index, False, byref(self.deviceHandle)))
         self._testStatus(self.lib.ADXDMA_OpenWindow(self.deviceHandle, self.device_index,

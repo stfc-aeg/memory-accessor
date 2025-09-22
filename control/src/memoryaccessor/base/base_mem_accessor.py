@@ -18,7 +18,7 @@ class MemoryAccessor(ABC):
         pass
 
     @abstractmethod
-    def initialise(self) -> None:
+    def open(self) -> None:
         pass
 
     @abstractmethod
