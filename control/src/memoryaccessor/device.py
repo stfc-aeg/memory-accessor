@@ -1,10 +1,10 @@
 import xml.etree.ElementTree as ET
-from dataclasses import dataclass, fields, _MISSING_TYPE
+from dataclasses import dataclass, fields, field, _MISSING_TYPE
 from functools import partial
 from memoryaccessor.base.base_mem_accessor import MemoryAccessor
 
 from odin.adapters.parameter_tree import ParameterTree, ParameterTreeError
-
+import sys
 
 # Device class to act as intermediary for Accessor class (adxdma/xdma etc) and adapter
 # accepts a register map XML file, provides each register as a parameter for adapter
@@ -22,11 +22,15 @@ class Device():
     """Device class to act as intermediary between Accessor class (adxdma/xdma etc) and adapter.
     Accepts a register map XML file, provides each register as a parameter for the adapter"""
 
-    def __init__(self, register_file_path, AccessorType) -> None:
-        self.accessor: "MemoryAccessor" = AccessorType()
+    def __init__(self, register_file_path, AccessorType, **kwargs) -> None:
 
         reg_tree = ET.parse(register_file_path)
         xml_root = reg_tree.getroot()
+
+        if "byte_size" in xml_root.attrib and "device_size" not in kwargs:
+            kwargs["device_size"] = xml_root.attrib["byte_size"]
+
+        self.accessor: "MemoryAccessor" = AccessorType(**kwargs)
 
         self.tree = {}
         self.tree["control"] = {
@@ -44,7 +48,6 @@ class Device():
     def parseRegisterElement(self, element: ET.Element, tree: dict):
         regs = []
         info = element.attrib
-        print(info[NAME_KEY])
         if len(element):
             first_child = element[0].attrib
             if first_child.get(ADDR_KEY, "0") == info.get(ADDR_KEY, "0") and "address" not in first_child:
@@ -54,7 +57,7 @@ class Device():
                     for field in element:
                         field_info = field.attrib
                         bit = BitField(field_info[NAME_KEY], field_info.get(DESC_KEY), field_info.get(PERM_KEY, "r"),
-                                    int(field_info[MASK_KEY], 16))
+                                       int(field_info[MASK_KEY], 16))
                         field_dict[field_info[NAME_KEY]] = bit
                     register = Register(info.get(NAME_KEY), info.get(DESC_KEY), info.get(PERM_KEY),
                                         int(info.get(ADDR_KEY), 16),
@@ -76,7 +79,6 @@ class Device():
                         }
                     })
                 except KeyError as e:
-                    print(field_info)
                     raise e
             else:
                 tree[info.get(NAME_KEY)] = {}
@@ -95,31 +97,35 @@ class Device():
 
         return regs
 
-    def read_register(self, register: "Register") -> int | None:
+    def read_register(self, register: "Register") -> int:
         if register.read:
             if self.accessor.isConnected:
-                return self.accessor.read(register.addr, register.size)
+                register.value = self.accessor.read(register.addr, register.size)
+                return int.from_bytes(register.value, sys.byteorder)
             else:
-                return -1
+                return int.from_bytes(register.value, sys.byteorder)
         else:
             raise ParameterTreeError("Unable to read Register {}: {}".format(register.name, "Register not readable"))
-        
+
     def write_register(self, value: bytearray, register: "Register"):
         if register.write and self.accessor.isConnected:
-            return self.accessor.write(register.addr, value)
+            self.accessor.write(register.addr, value)
+            register.value = self.accessor.read(register.addr, register.size)
         else:
             raise ParameterTreeError("Unable to write to Register {}: {}".format(register.name, "Not Connected" if register.write else "Register not writeable"))
 
     def _get_bitwise_trailing_zeros(self, val):
+        """Method to get the number of trailing 0s on a binary value.
+        Used to calculate how much to shift a masked value to return the specific value regardless of its position"""
         c = 0
         v = (val ^ (val - 1)) >> 1
-        while v:
+        while v > 0:
             v >>= 1
             c += 1
         return c
 
     def read_field(self, register: "Register", field: "BitField") -> int:
-        val = self.read_register(register)
+        val = int.from_bytes(register.value, sys.byteorder)
         # get shift value
         mask = field.mask
         shift = self._get_bitwise_trailing_zeros(mask)
@@ -128,7 +134,7 @@ class Device():
     def write_field(self, value, register: "Register", field: "BitField"):
         mask = field.mask
         shift = self._get_bitwise_trailing_zeros(mask)
-        start_val = self.read_register(register) & (~mask)  # get the reg value, but 0 out the bits this field relates to
+        start_val = int.from_bytes(register.value, sys.byteorder) & (~mask)  # get the reg value, but 0 out the bits this field relates to
         write_val = start_val & ((value << shift) & mask)  # AND the shifted write_val to the starting reg value
 
         self.write_register(write_val)
@@ -173,9 +179,10 @@ class Memory:
 @dataclass
 class Register(Memory):
     """Register Data Class, stores the addr, name, size, read/write permissions, description and any bitfields"""
-    addr: int = 0 # absolute addr offset
+    addr: int = 0  # absolute addr offset
     size: int = 4  # number bytes, default 32 bit reg
     bitFields: dict | None = None
+    value: bytearray = field(default_factory=bytearray)
 
     def __repr__(self) -> str:
         fields_str = "\n\t\t".join([str(value) for value in self.bitFields.values()]) if self.bitFields else "None"
@@ -187,16 +194,5 @@ class Register(Memory):
 @dataclass
 class BitField(Memory):
     """Data Class for the bitfields within a Register"""
-    mask: int = 0 # a mask for the bits the field relate to
+    mask: int = 0  # a mask for the bits the field relate to
 
-
-# if __name__ == "__main__":
-#     parser = argparse.ArgumentParser(
-#         prog="Device",
-#         description="Testing Device Class at command line"
-#     )
-#     parser.add_argument("regfile")
-#     args = parser.parse_args()
-#     device = Device(args.regfile, XDmaAccessor)
-
-#     print(device.registers)

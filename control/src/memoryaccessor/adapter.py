@@ -1,9 +1,9 @@
 from .base.base_adapter import BaseAdapter
-from .controller import MemoryaccessorController, MemoryaccessorError
+from .controller import MemoryAccessorController, ControllerError
 
 
 class MemoryaccessorAdapter(BaseAdapter):
     """MEMORYACCESSOR Adapter class inheriting base adapter functionality."""
 
-    controller_cls = MemoryaccessorController
-    error_cls = MemoryaccessorError
+    controller_cls = MemoryAccessorController
+    error_cls = ControllerError
