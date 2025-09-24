@@ -41,10 +41,13 @@ class XDmaAccessor(MemoryAccessor):
             os.close(self.dev_file)
     
     def read(self, addr: int, size: int) -> bytearray:
-        
+        if not self.isConnected:
+            raise XdmaException("DEVICE NOT CONNECTED")
         read_reg = self.memory[addr: addr + size]  # this has no checking to ensure addr is legal?
         return bytearray(read_reg)
     
     def write(self, addr: int, data: bytearray) -> None:
+        if not self.isConnected:
+            raise XdmaException("DEVICE NOT CONNECTED")
         length = len(data)
         self.memory[addr: addr + length] = data

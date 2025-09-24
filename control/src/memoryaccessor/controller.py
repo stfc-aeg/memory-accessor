@@ -1,10 +1,13 @@
 import logging
 import sys
+import json
+import time
+import math
 from odin.adapters.parameter_tree import ParameterTree, ParameterTreeError
 import xml.etree.ElementTree as ET
 from functools import partial
 from dataclasses import dataclass, fields, field, _MISSING_TYPE
-
+from tornado.ioloop import PeriodicCallback
 
 from .base.base_controller import BaseController, BaseError
 from .base.base_mem_accessor import MemoryAccessor
@@ -33,7 +36,17 @@ class Register(Memory):
     addr: int = 0  # absolute addr offset
     size: int = 4  # number bytes, default 32 bit reg
     bitFields: dict | None = None
+    fullPath: str = ""
+    timeLastRead: int = 0  # only used for Polled registers
     value: bytearray = field(default_factory=bytearray)
+
+    def __post_init__(self):
+        super().__post_init__()
+        split_path = self.fullPath.split(".")[1:]
+        if split_path:
+            self.fullPath = "/".join(split_path)  # make fullPath appear like Param Path, without root name part
+        else:
+            self.fullPath = self.name
 
     def __repr__(self) -> str:
         fields_str = "\n\t\t".join([str(value) for value in self.bitFields.values()]) if self.bitFields else "None"
@@ -58,8 +71,10 @@ def _get_bitwise_trailing_zeros(val):
         c += 1
     return c
 
+
 # attribute key consts for the XMl parsing, based on the XML firmware file
 NAME_KEY = "id"
+FULLNAME_KEY = "absolute_id"
 ADDR_KEY = "absolute_offset"
 DESC_KEY = "description"
 PERM_KEY = "permission"
@@ -80,39 +95,70 @@ class MemoryAccessorController(BaseController):
     }
 
     def __init__(self, options):
-        self.options = options
-        accessorType: type[MemoryAccessor] = self.accessor_map.get(options.get("accessor_type").lower(), XDmaAccessor)
+
+        # get accessor type
+        accessorType: type[MemoryAccessor] = self.accessor_map.get(
+            options.get("accessor_type").lower(), XDmaAccessor)
+
+        # get register access policy settings
+        self.access_policy = options.get("access_policy", "static")
+        policy_file_name = options.get("access_policy_file")
+        self.access_policy_overwrites = {}
+        if policy_file_name:
+            with open(policy_file_name) as f:
+                self.access_policy_overwrites = json.load(f)
+        self.read_on_open = options.get("read_on_open", "").lower() in ["true", "1", "yes"]
+        
+
+        # get register map
         reg_map_file = options.get("reg_map")
         reg_tree = ET.parse(reg_map_file)
         reg_tree_root = reg_tree.getroot()
+
+        # get size of memory being mapped (needed if using XDMA) from reg map
         if "byte_size" in reg_tree_root and "device_size" not in options:
             options['device_size'] = reg_tree_root.attrib['byte_size']
 
-        self.registers: dict[int, "Register"] = {}  # dictionary of registers, key will be reg addr
-        
+        self.registers: dict[int, Register] = {}  # dictionary of registers, key will be reg addr
+        self.polled_registers: dict[int, int] = {}
+
+        # initialise the accessor
         self.accessor: MemoryAccessor = accessorType(**options)
 
+        # initialise the Param Tree
         tree = {}
         tree["control"] = {
-            "open": (None, lambda _: self.accessor.open()),
+            "open": (None, lambda _: self.open_device()),
             "close": (None, lambda _: self.accessor.close()),
             "connected": (lambda: self.accessor.isConnected, None)
         }
 
         tree['registers'] = {}
 
+        # create register Param Tree
         for root_child in reg_tree_root:
             self.registers.update(self.parseRegisterElement(root_child, tree['registers']))
 
         self.param_tree = ParameterTree(tree)
 
+        # calc frequency needed for callback so every desired polling frequency is covered
+        all_freq = list(self.polled_registers.values())
+        logging.debug(all_freq)
+        poll_freq = math.gcd(*all_freq)
+        logging.debug("Polling loop frequency is %d", poll_freq)
+        self.background_polling = PeriodicCallback(self.polling_loop, poll_freq)
+        self.background_polling.start()
+
     def initialize(self, adapters):
         self.adapters = adapters
-        # logging.debug(f"Adapters initialized: {list(adapters.keys())}")
+        logging.debug(f"Adapters initialized: {list(adapters.keys())}")
         # Add to param tree if needed post-initialization
 
     def cleanup(self):
-        logging.info("Cleaning up MemoryaccessorController")
+        logging.info("Cleaning up MemoryAccessorController")
+        self.background_polling.stop()
+        if self.accessor.isConnected:
+            self.accessor.close()
 
     def get(self, path, with_metadata=False):
         try:
@@ -148,10 +194,10 @@ class MemoryAccessorController(BaseController):
                 reg = Register(info.get(NAME_KEY), info.get(DESC_KEY), info.get(PERM_KEY),
                                int(info.get(ADDR_KEY), 16),
                                int(info.get(SIZE_KEY, 1)) * 4,  # size is in number of 32 bit words
-                               field_dict)
+                               field_dict,
+                               fullPath=info.get(FULLNAME_KEY))
                 reg_dict[reg.addr] = reg
 
-                # PARAM TREE STUFF HERE. TODO: DONT ALWAYS READ DIRECT FROM DEVICE IN TREE
                 tree[reg.name] = self.create_reg_paramTree(reg)
             else:
                 tree[info.get(NAME_KEY)] = {}
@@ -160,18 +206,25 @@ class MemoryAccessorController(BaseController):
         else:
             reg = Register(info.get(NAME_KEY), info.get(DESC_KEY), info.get(PERM_KEY),
                            int(info.get(ADDR_KEY), 16),
-                           int(info.get(SIZE_KEY, 1)) * 4)  # size is in number of 32 bit words
+                           int(info.get(SIZE_KEY, 1)) * 4,
+                           fullPath=info.get(FULLNAME_KEY))  # size is in number of 32 bit words
             reg_dict[reg.addr] = reg
 
-            # PARAM TREE STUFF HERE
             tree[reg.name] = self.create_reg_paramTree(reg)
 
         return reg_dict
     
     def create_reg_paramTree(self, reg: Register):
+        reg_policy = {}
+        if reg.fullPath in self.access_policy_overwrites or reg.name in self.access_policy_overwrites:
+            # if the register is in the overwrites json, check if it specifies an addr
+            reg_policy = self.access_policy_overwrites.get(reg.name) or self.access_policy_overwrites.get(reg.fullPath)
+
+        read_accessor = self.create_read_access_param(reg, **reg_policy)
+
         tree = {
             "value": (
-                partial(self.immediate_reg_read, register=reg),
+                read_accessor,
                 None if not reg.write else partial(self.write_register, register=reg),
                 {"description": reg.desc}
             ),
@@ -182,12 +235,49 @@ class MemoryAccessorController(BaseController):
                 name: (
                     partial(self.read_field, register=reg, field=bit),
                     None if not bit.write else partial(self.write_field, register=reg, field=bit),
-                    {"description": bit.desc}
+                    {"description": bit.desc,
+                     "min": 0,
+                     "max": bit.mask >> _get_bitwise_trailing_zeros(bit.mask)}
                 ) for (name, bit) in reg.bitFields.items()
             }
         return tree
+    
+    def create_read_access_param(self, reg: Register, **kwargs):
+        """
+        Create the GET ParamTree Access method for the provided register. Access can be done in a few ways:
+        - Static: only read from the actual register once and saves it. Afterwards, just return the saved value.
+        - Polled: The Adapter will read the register in a PeriodicCallback. The Frequency of which can be customised per register
+        - Immediate: The adapter will always read the register value directly from the hardware. This should be limited to avoid strain on the system
+        """
+        policy = kwargs.get("policy", self.access_policy)
+        frequency = kwargs.get("frequency", 100)
+        
+        if policy.lower() in ["immediate", "direct"]:
+            logging.debug("Creating Immediate access param for register %s", reg.name)
+            return partial(self.immediate_reg_read, register=reg)
+        elif policy.lower() in ["static", "once"]:
+            return partial(self.static_reg_read, register=reg)
+        elif policy.lower() in ["polled", "looped"]:
+            logging.debug("Creating Polled access param for register %s, at a frequency of %dms", reg.name, frequency)
+            self.polled_registers[reg.addr] = frequency
+            return (lambda: int.from_bytes(reg.value, sys.byteorder))
+        else:
+            raise ControllerError("Access Policy '%s' not recognised for register %s", policy, reg.fullPath)
+
+    def static_reg_read(self, register: Register):
+        """
+        Statically read the Register value. If the value has already been read, return local copy.
+        Otherwise, read from the register and save the value locally
+        """
+        if not register.value and self.accessor.isConnected:  # is the reg bytearray empty? is the accessor open?
+            logging.debug("First Read on static reg %s", register.name)
+            register.value = self.accessor.read(register.addr, register.size)
+        return int.from_bytes(register.value, sys.byteorder)
 
     def immediate_reg_read(self, register: Register | int):
+        """
+        Directly read the register value. This always reads from the actual device, and so should rarely be used in the Param Tree
+        """
         if isinstance(register, int):
             reg = self.registers.get(register)
             if reg is None:
@@ -197,6 +287,7 @@ class MemoryAccessorController(BaseController):
 
         if reg.read:
             if self.accessor.isConnected:
+                logging.info("Directly accessing Register %s at addr %s from the Parameter Tree.", reg.name, reg.addr)
                 reg.value = self.accessor.read(reg.addr, reg.size)
             return int.from_bytes(reg.value, sys.byteorder)
         else:
@@ -212,7 +303,8 @@ class MemoryAccessorController(BaseController):
 
         if reg.write and self.accessor.isConnected:
             self.accessor.write(reg.addr, value)
-            reg.value = value
+            if reg.read:  # some registers can be write only.
+                reg.value = self.accessor.read(reg.addr, reg.size)
         else:
             raise ControllerError(("Unable to write to Register {}: {}"
                                    .format(register.name,
@@ -232,3 +324,22 @@ class MemoryAccessorController(BaseController):
         write_val = start_val & ((value << shift) & mask)  # AND the shifted write_val to the starting reg value
 
         self.write_register(write_val)
+
+    def open_device(self):
+        self.accessor.open()
+        if self.accessor.isConnected and self.read_on_open:
+            logging.debug("READ ON OPEN. Reading all register values")
+            for regAddr, reg in self.registers.items():
+                val = self.accessor.read(regAddr, reg.size)
+                reg.value = val
+
+    def polling_loop(self):
+        if self.accessor.isConnected:
+            timestamp = int(time.time() * 1000)  # milliseconds since epoch
+            for addr, freq in self.polled_registers.items():
+                reg = self.registers[addr]
+                if reg.timeLastRead + freq < timestamp:
+                    logging.debug("POLLING LOOP READING %s at freq %dms", reg.name, freq)
+                    reg.value = self.accessor.read(reg.addr, reg.size)
+                    reg.timeLastRead = timestamp
+
