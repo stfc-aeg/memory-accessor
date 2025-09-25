@@ -1,4 +1,4 @@
-from memoryaccessor.base.base_mem_accessor import MemoryAccessor, MemoryAccessorException
+from RegisterAccessor.base.base_mem_accessor import RegisterAccessor, RegisterAccessorException
 
 import mmap
 import os
@@ -6,11 +6,11 @@ from pathlib import Path
 import logging
 
 
-class XdmaException(MemoryAccessorException):
+class XdmaException(RegisterAccessorException):
     pass
 
 
-class XDmaAccessor(MemoryAccessor):
+class XDmaAccessor(RegisterAccessor):
 
     def __init__(self, **kwargs):
         super().__init__()

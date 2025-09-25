@@ -10,9 +10,9 @@ from dataclasses import dataclass, fields, field, _MISSING_TYPE
 from tornado.ioloop import PeriodicCallback
 
 from .base.base_controller import BaseController, BaseError
-from .base.base_mem_accessor import MemoryAccessor
-from memoryaccessor.adxdma.accessor import AdxdmaAccessor
-from memoryaccessor.xdma.accessor import XDmaAccessor
+from .base.base_mem_accessor import RegisterAccessor
+from RegisterAccessor.adxdma.accessor import AdxdmaAccessor
+from RegisterAccessor.xdma.accessor import XDmaAccessor
 
 
 @dataclass
@@ -86,10 +86,10 @@ class ControllerError(BaseError):
     """Simple exception class to wrap lower-level exceptions."""
 
 
-class MemoryAccessorController(BaseController):
-    """Controller class for MEMORYACCESSOR."""
+class RegisterAccessorController(BaseController):
+    """Controller class for RegisterAccessor."""
 
-    accessor_map: dict[str, MemoryAccessor] = {
+    accessor_map: dict[str, RegisterAccessor] = {
         "xdma": XDmaAccessor,
         "adxdma": AdxdmaAccessor
     }
@@ -97,7 +97,7 @@ class MemoryAccessorController(BaseController):
     def __init__(self, options):
 
         # get accessor type
-        accessorType: type[MemoryAccessor] = self.accessor_map.get(
+        accessorType: type[RegisterAccessor] = self.accessor_map.get(
             options.get("accessor_type").lower(), XDmaAccessor)
 
         # get register access policy settings
@@ -123,7 +123,7 @@ class MemoryAccessorController(BaseController):
         self.polled_registers: dict[int, int] = {}
 
         # initialise the accessor
-        self.accessor: MemoryAccessor = accessorType(**options)
+        self.accessor: RegisterAccessor = accessorType(**options)
 
         # initialise the Param Tree
         tree = {}
@@ -155,7 +155,7 @@ class MemoryAccessorController(BaseController):
         # Add to param tree if needed post-initialization
 
     def cleanup(self):
-        logging.info("Cleaning up MemoryAccessorController")
+        logging.info("Cleaning up RegisterAccessorController")
         self.background_polling.stop()
         if self.accessor.isConnected:
             self.accessor.close()
@@ -287,7 +287,7 @@ class MemoryAccessorController(BaseController):
 
         if reg.read:
             if self.accessor.isConnected:
-                logging.info("Directly accessing Register %s at addr %s from the Parameter Tree.", reg.name, reg.addr)
+                logging.warning("Directly accessing Register %s at addr %s from the Parameter Tree.", reg.name, reg.addr)
                 reg.value = self.accessor.read(reg.addr, reg.size)
             return int.from_bytes(reg.value, sys.byteorder)
         else:

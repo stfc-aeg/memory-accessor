@@ -1,11 +1,11 @@
 from abc import ABC, abstractmethod
 
 
-class MemoryAccessorException(ABC, Exception):
+class RegisterAccessorException(ABC, Exception):
     pass
 
 
-class MemoryAccessor(ABC):
+class RegisterAccessor(ABC):
 
     @property
     def isConnected(self):

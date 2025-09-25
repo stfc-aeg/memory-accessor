@@ -1,7 +1,7 @@
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, fields, field, _MISSING_TYPE
 from functools import partial
-from memoryaccessor.base.base_mem_accessor import MemoryAccessor
+from RegisterAccessor.base.base_mem_accessor import RegisterAccessor
 
 from odin.adapters.parameter_tree import ParameterTree, ParameterTreeError
 import sys
@@ -30,7 +30,7 @@ class Device():
         if "byte_size" in xml_root.attrib and "device_size" not in kwargs:
             kwargs["device_size"] = xml_root.attrib["byte_size"]
 
-        self.accessor: "MemoryAccessor" = AccessorType(**kwargs)
+        self.accessor: "RegisterAccessor" = AccessorType(**kwargs)
 
         self.tree = {}
         self.tree["control"] = {

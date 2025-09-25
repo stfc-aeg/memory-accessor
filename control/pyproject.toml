@@ -3,7 +3,7 @@ requires = ["setuptools>=64", "setuptools_scm>=8", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "memoryaccessor"
+name = "RegisterAccessor"
 description = "odin-control adapter project for Register Accessor classes, such as ADXDMA or XDMA"
 dynamic = ["version"]
 requires-python = ">=3.10"
@@ -17,9 +17,12 @@ dependencies = [
 ]
 readme = "README.md"
 
-[[project.authors]] 
+[[project.authors]]
 email = "ashley.neaves@stfc.ac.uk"
 name = "Ashley Neaves"
+
+[project.scripts]
+generate_register_map = "RegisterAccessor.main:main"
 
 [project.urls]
 GitHub = "https://github.com/stfc-aeg/memory-accessor"
@@ -30,6 +33,6 @@ where = ["src"]
 [tool.setuptools_scm]
 # Optional settings for setuptools_scm
 root = ".."
-write_to = "control/src/memoryaccessor/_version.py"
+write_to = "control/src/RegisterAccessor/_version.py"
 version_scheme = "no-guess-dev"
 local_scheme = "node-and-date"

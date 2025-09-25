@@ -1,5 +1,5 @@
-from memoryaccessor.base.base_mem_accessor import MemoryAccessor, MemoryAccessorException
-from memoryaccessor.adxdma.AdxdmaLib import AdxdmaLib, COMPLETION
+from RegisterAccessor.base.base_mem_accessor import RegisterAccessor, RegisterAccessorException
+from RegisterAccessor.adxdma.AdxdmaLib import AdxdmaLib, COMPLETION
 from ctypes import byref
 from ctypes import c_int, c_uint32
 
@@ -7,7 +7,7 @@ import logging
 import math
 
 
-class AdxdmaException(MemoryAccessorException):
+class AdxdmaException(RegisterAccessorException):
     """Exception class to handle error codes from the ADXDMA lib"""
     message_lookup = {
             AdxdmaLib.SUCCESS:                "success",
@@ -55,7 +55,7 @@ class AdxdmaException(MemoryAccessorException):
         super().__init__(message)
 
 
-class AdxdmaAccessor(MemoryAccessor):
+class AdxdmaAccessor(RegisterAccessor):
     """Accessor class using Adxdma to read/write register values from an Alphadata Card"""
 
     def __init__(self, **kwargs):

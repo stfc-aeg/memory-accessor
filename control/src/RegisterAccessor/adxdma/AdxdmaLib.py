@@ -1,7 +1,7 @@
 from ctypes import CDLL, pointer, POINTER, Structure
 from ctypes import c_uint, c_int, c_uint8, c_uint32, c_uint64, c_bool, c_size_t, c_void_p
 from ctypes.util import find_library
-from memoryaccessor.base.base_mem_accessor import MemoryAccessorException
+from RegisterAccessor.base.base_mem_accessor import RegisterAccessorException
 
 
 class COMPLETION(Structure):
@@ -55,12 +55,12 @@ class AdxdmaLib(CDLL):
         
         libName = find_library(name)
         if not libName:
-            raise MemoryAccessorException("Library for {} not found".format(name))
+            raise RegisterAccessorException("Library for {} not found".format(name))
         try:
             super().__init__(libName)
         except (FileNotFoundError, PermissionError):
             # Library not found
-            raise MemoryAccessorException("Library for {} not found or is otherwise inaccessible".format(name))
+            raise RegisterAccessorException("Library for {} not found or is otherwise inaccessible".format(name))
 
         #open, open window, read window, write window, close window, close
 
