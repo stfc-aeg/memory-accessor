@@ -108,7 +108,7 @@ class MemoryAccessorController(BaseController):
             with open(policy_file_name) as f:
                 self.access_policy_overwrites = json.load(f)
         self.read_on_open = options.get("read_on_open", "").lower() in ["true", "1", "yes"]
-        
+        self.poll_rate = int(options.get("poll_rate", 1000))
 
         # get register map
         reg_map_file = options.get("reg_map")
@@ -250,7 +250,7 @@ class MemoryAccessorController(BaseController):
         - Immediate: The adapter will always read the register value directly from the hardware. This should be limited to avoid strain on the system
         """
         policy = kwargs.get("policy", self.access_policy)
-        frequency = kwargs.get("frequency", 100)
+        frequency = kwargs.get("frequency", self.poll_rate)
         
         if policy.lower() in ["immediate", "direct"]:
             logging.debug("Creating Immediate access param for register %s", reg.name)
