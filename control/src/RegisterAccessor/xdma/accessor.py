@@ -39,6 +39,7 @@ class XDmaAccessor(RegisterAccessor):
         if self.isConnected:
             self.memory.close()
             os.close(self.dev_file)
+            self._isConnected = False
     
     def read(self, addr: int, size: int) -> bytearray:
         if not self.isConnected:
