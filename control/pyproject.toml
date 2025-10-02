@@ -12,14 +12,17 @@ classifiers = [
     "License :: OSI Approved :: Apache Software License",
     "Programming Language :: Python :: >=3.10",
 ]
-dependencies = [
-    "odin-control@git+https://git@github.com/odin-detector/odin-control"
-]
+
 readme = "README.md"
 
 [[project.authors]]
 email = "ashley.neaves@stfc.ac.uk"
 name = "Ashley Neaves"
+
+[project.optional-dependencies]
+odin_control = [
+    "odin-control @ git+https://github.com/odin-detector/odin-control@1.6.0#egg=odin-control"
+]
 
 [project.scripts]
 generate_register_map = "RegisterAccessor.main:main"
