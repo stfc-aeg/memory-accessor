@@ -13,7 +13,7 @@ classifiers = [
     "Programming Language :: Python :: >=3.10",
 ]
 dependencies = [
-    "odin-control @ git+https://github.com/odin-detector/odin-control@1.6.0#egg=odin-control"
+    "odin-control@git+https://git@github.com/odin-detector/odin-control"
 ]
 readme = "README.md"
 
