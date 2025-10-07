@@ -183,6 +183,16 @@ class RegisterAccessorController(BaseController):
             register.value = self.accessor.read(register.addr, register.size)
         return int.from_bytes(register.value, sys.byteorder)
 
+    def poll_reg_read(self, register: Register):
+        """
+        Read the value from the register, which is read from the polling loop
+        if the value has not yet been read at all by the loop, behave like the static register read
+        """
+        if not register.value and self.accessor.isConnected:
+            logging.debug("Polled register %s not yet populated. Statically reading", register.name)
+            register.value = self.accessor.read(register.addr, register.size)
+        return int.from_bytes(register.value, sys.byteorder)
+
     def immediate_reg_read(self, register: Register | int):
         """
         Directly read the register value. This always reads from the actual device, and so should rarely be used in the Param Tree
@@ -190,23 +200,22 @@ class RegisterAccessorController(BaseController):
         if isinstance(register, int):
             reg = self.registers.get(register)
             if reg is None:
-                raise ControllerError("Unable to read Address {:X}: Not found in Register map".format(register))
+                raise ControllerError("Unable to read address {:X}: Not found in register map".format(register))
         else:
             reg = register
 
         if reg.read:
             if self.accessor.isConnected:
-                logging.warning("Directly accessing Register %s at addr %s from the Parameter Tree.", reg.name, reg.addr)
                 reg.value = self.accessor.read(reg.addr, reg.size)
             return int.from_bytes(reg.value, sys.byteorder)
         else:
-            raise ControllerError("Unable to read Register {}: Register not readable".format(reg.name))
+            raise ControllerError("Unable to read register {}: Register not readable".format(reg.name))
 
     def write_register(self, value: bytearray, register: Register | int):
         if isinstance(register, int):
             reg = self.registers.get(register)
             if reg is None:
-                raise ControllerError("Unable to read Address {:X}: Not found in Register map".format(register))
+                raise ControllerError("Unable to read Address {:X}: Not found in register map".format(register))
         else:
             reg = register
 
@@ -215,9 +224,9 @@ class RegisterAccessorController(BaseController):
             if reg.read:  # some registers can be write only.
                 reg.value = self.accessor.read(reg.addr, reg.size)
         else:
-            raise ControllerError(("Unable to write to Register {}: {}"
+            raise ControllerError(("Unable to write to register {}: {}"
                                    .format(register.name,
-                                           "Not Connected" if register.write else "Register not writeable")))
+                                           "Not connected" if register.write else "Register not writeable")))
 
     def read_field(self, register: "Register", bitField: BitField) -> int:
         val = int.from_bytes(register.value, sys.byteorder)
@@ -236,18 +245,12 @@ class RegisterAccessorController(BaseController):
 
     def open_device(self):
         self.accessor.open()
-        # if self.accessor.isConnected and self.read_on_open:
-        #     logging.debug("READ ON OPEN. Reading all register values")
-        #     for regAddr, reg in self.registers.items():
-        #         val = self.accessor.read(regAddr, reg.size)
-        #         reg.value = val
 
     def polling_loop(self):
         if self.accessor.isConnected:
             timestamp = int(time.time() * 1000)  # milliseconds since epoch
             for reg in self.polled_registers:
                 if reg.timeLastRead + reg.poll_freq < timestamp:
-                    logging.debug("POLLING LOOP READING %s at freq %dms", reg.name, reg.poll_freq)
                     reg.value = self.accessor.read(reg.addr, reg.size)
                     reg.timeLastRead = timestamp
 
