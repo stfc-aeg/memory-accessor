@@ -169,7 +169,7 @@ class RegisterAccessorController(BaseController):
             logging.debug("Creating Polled access param for register %s, at a frequency of %dms", reg.name, frequency)
             reg.poll_freq = frequency
             self.polled_registers.append(reg)
-            return (lambda: int.from_bytes(reg.value, sys.byteorder))
+            return partial(self.poll_reg_read, register=reg)
         else:
             raise ControllerError("Access Policy '%s' not recognised for register %s at addr %X", policy, reg.name, reg.addr)
 
@@ -193,7 +193,7 @@ class RegisterAccessorController(BaseController):
             register.value = self.accessor.read(register.addr, register.size)
         return int.from_bytes(register.value, sys.byteorder)
 
-    def immediate_reg_read(self, register: Register | int):
+    def immediate_reg_read(self, register: Register):
         """
         Directly read the register value. This always reads from the actual device, and so should rarely be used in the Param Tree
         """
@@ -211,18 +211,19 @@ class RegisterAccessorController(BaseController):
         else:
             raise ControllerError("Unable to read register {}: Register not readable".format(reg.name))
 
-    def write_register(self, value: bytearray, register: Register | int):
-        if isinstance(register, int):
-            reg = self.registers.get(register)
-            if reg is None:
-                raise ControllerError("Unable to read Address {:X}: Not found in register map".format(register))
-        else:
-            reg = register
+    def write_register(self, value: bytearray, register: Register):
+        """
+        Write to the register. this will always be a write directly to the hardware, no matter the registers Access Policy
+        
+        Parameters:
+            value: The data to write to the register, as a bytearray the size of the register
 
-        if reg.write and self.accessor.isConnected:
-            self.accessor.write(reg.addr, value)
-            if reg.read:  # some registers can be write only.
-                reg.value = self.accessor.read(reg.addr, reg.size)
+
+        """
+        if register.write and self.accessor.isConnected:
+            self.accessor.write(register.addr, value)
+            if register.read:  # some registers can be write only.
+                register.value = self.accessor.read(register.addr, register.size)
         else:
             raise ControllerError(("Unable to write to register {}: {}"
                                    .format(register.name,
