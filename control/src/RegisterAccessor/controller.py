@@ -222,7 +222,7 @@ class RegisterAccessorController(BaseController):
         """
         if register.write and self.accessor.isConnected:
             byteVal = int.to_bytes(value, register.size, sys.byteorder)
-            logging.debug("Writing 0x{:X} to register %s", value, register.name)
+            logging.debug("Writing 0x%X to register %s", value, register.name)
             self.accessor.write(register.addr, byteVal)
             if register.read:  # some registers can be write only.
                 register.value = self.accessor.read(register.addr, register.size)

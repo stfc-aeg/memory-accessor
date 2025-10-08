@@ -111,7 +111,7 @@ class AdxdmaAccessor(RegisterAccessor):
     def _testStatus(self, status, complete: COMPLETION | None = None):
         if status != self.lib.SUCCESS:
             if complete and status == self.lib.TRUNCATED:
-                logging.error("{} bytes transferred in read/write call, which was less than expected.".format(complete.Transferred))
+                logging.error("%d bytes transferred in read/write call, which was less than expected.", complete.Transferred)
                 raise AdxdmaException(complete.Reason)
             else:
                 raise AdxdmaException(status)
