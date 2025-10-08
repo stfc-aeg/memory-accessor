@@ -211,19 +211,23 @@ class RegisterAccessorController(BaseController):
         else:
             raise ControllerError("Unable to read register {}: Register not readable".format(reg.name))
 
-    def write_register(self, value: bytearray, register: Register):
+    def write_register(self, value: int, register: Register):
         """
         Write to the register. this will always be a write directly to the hardware, no matter the registers Access Policy
         
         Parameters:
-            value: The data to write to the register, as a bytearray the size of the register
+            value: The data to write to the register, as a integer that will become a bytearray
 
 
         """
         if register.write and self.accessor.isConnected:
-            self.accessor.write(register.addr, value)
+            byteVal = int.to_bytes(value, register.size, sys.byteorder)
+            logging.debug("Writing 0x{:X} to register %s", value, register.name)
+            self.accessor.write(register.addr, byteVal)
             if register.read:  # some registers can be write only.
                 register.value = self.accessor.read(register.addr, register.size)
+            else:
+                register.value = byteVal
         else:
             raise ControllerError(("Unable to write to register {}: {}"
                                    .format(register.name,
@@ -236,13 +240,13 @@ class RegisterAccessorController(BaseController):
         shift = _get_bitwise_trailing_zeros(mask)
         return (val & mask) >> shift  # bitwise AND and then right shift to remove mask offset
 
-    def write_field(self, value, register: "Register", bitField: "BitField"):
+    def write_field(self, value: int, register: "Register", bitField: "BitField"):
         mask = bitField.mask
         shift = _get_bitwise_trailing_zeros(mask)
         start_val = int.from_bytes(register.value, sys.byteorder) & (~mask)  # get the reg value, but 0 out the bits this field relates to
-        write_val = start_val & ((value << shift) & mask)  # AND the shifted write_val to the starting reg value
+        write_val = start_val | ((value << shift) & mask)  # shift the write val based on the mask, to position the bits correctly
 
-        self.write_register(write_val)
+        self.write_register(write_val, register)
 
     def open_device(self):
         self.accessor.open()
