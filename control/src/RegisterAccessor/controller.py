@@ -49,11 +49,11 @@ class RegisterAccessorController(BaseController):
         "adxdma": AdxdmaAccessor
     }
 
-    def __init__(self, options):
+    def __init__(self, options: dict[str, str]):
 
         # get accessor type
         accessorType: type[RegisterAccessor] = self.accessor_map.get(
-            options.get("accessor_type").lower(), XDmaAccessor)
+            options.get("accessor_type", "xdma").lower(), XDmaAccessor)
 
         # get register access policy settings
         self.access_policy = options.get("access_policy", "static")
