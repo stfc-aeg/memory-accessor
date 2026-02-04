@@ -211,7 +211,7 @@ class RegisterAccessorController(BaseController):
         else:
             raise ControllerError("Unable to read register {}: Register not readable".format(reg.name))
 
-    def write_register(self, value: int, register: Register):
+    def write_register(self, value: int | bytes, register: Register):
         """
         Write to the register. this will always be a write directly to the hardware, no matter the registers Access Policy
         
@@ -221,7 +221,12 @@ class RegisterAccessorController(BaseController):
 
         """
         if register.write and self.accessor.isConnected:
-            byteVal = int.to_bytes(value, register.size, sys.byteorder)
+            if type(value) is int:
+                byteVal = int.to_bytes(value, register.size, sys.byteorder)
+            elif type(value) is bytes:
+                byteVal = value
+            else:
+                raise ControllerError("Invalid Register Value Type: %s", type(value))
             logging.debug("Writing 0x%X to register %s", value, register.name)
             self.accessor.write(register.addr, byteVal)
             if register.read:  # some registers can be write only.
