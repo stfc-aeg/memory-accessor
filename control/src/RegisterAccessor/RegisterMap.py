@@ -3,11 +3,11 @@ import json
 import pathlib
 import xml.etree.ElementTree as ET
 import logging
+from typing import Union, TypeAlias
 
 from dataclasses import dataclass, field, fields, _MISSING_TYPE
 
 from RegisterAccessor.base.base_controller import BaseError
-
 
 @dataclass
 class Memory:
@@ -54,6 +54,8 @@ PERM_KEY = "permission"
 MASK_KEY = "mask"
 SIZE_KEY = "size"
 
+RegisterMapDict: TypeAlias = dict[str, Union[Register, 'RegisterMapDict']]
+"""Type Desription for the ensted Register map dictionary"""
 
 class RegisterMap():
     """
@@ -65,6 +67,8 @@ class RegisterMap():
     def __init__(self, reg_file: str, policy_file: str | None = None) -> None:
         self.reg_file = pathlib.Path(reg_file)
         self.policy_file = pathlib.Path(policy_file) if policy_file else None
+
+        self.map: RegisterMapDict
         if not self.reg_file.is_file():
             raise RegisterMapError("Register Map File \"%s\" is not found", reg_file)
         if self.reg_file.suffix not in self.supported_file_types:
@@ -102,7 +106,7 @@ class RegisterMap():
             json_tree = json.load(f)
         return self.parseJSONElement("", json_tree)
 
-    def parseXMLElement(self, element: ET.Element):
+    def parseXMLElement(self, element: ET.Element) -> RegisterMapDict:
         info = element.attrib
         fields_list: list[BitField] = []
         if len(element):
@@ -135,7 +139,7 @@ class RegisterMap():
         
         return reg
 
-    def parseJSONElement(self, name: str, element: dict):
+    def parseJSONElement(self, name: str, element: dict) -> RegisterMapDict:
         if "addr" in element:
             # Register!
             fields_list: list[BitField] = []
@@ -162,12 +166,14 @@ class RegisterMap():
             
             return node
     
-    def getReg(self, path: str, map: dict):
+    def getReg(self, path: str, map: RegisterMapDict | None = None):
         """
         Get a list of all registers that match with the Path provided
         If path contains a "/", it is assumed to be a full path to a specific reg
         If not, it is assumed to be just the name of the register(s) desired
         """
+        if map is None:
+            map = self.map
         subMap: dict[str, Register | dict] = map
         if "/" in path:
             # is a direct path
