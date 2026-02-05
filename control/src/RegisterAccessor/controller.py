@@ -227,7 +227,7 @@ class RegisterAccessorController(BaseController):
                 byteVal = value
             else:
                 raise ControllerError("Invalid Register Value Type: %s", type(value))
-            logging.debug("Writing 0x%X to register %s", value, register.name)
+            logging.debug("Writing 0x%s to register %s", byteVal.hex().upper(), register.name)
             self.accessor.write(register.addr, byteVal)
             if register.read:  # some registers can be write only.
                 register.value = self.accessor.read(register.addr, register.size)
