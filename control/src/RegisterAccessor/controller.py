@@ -8,6 +8,7 @@ import xml.etree.ElementTree as ET
 from functools import partial
 from dataclasses import dataclass, fields, field, _MISSING_TYPE
 from tornado.ioloop import PeriodicCallback
+from typing import TypedDict, Callable
 
 from .base.base_controller import BaseController, BaseError
 from .base.base_mem_accessor import RegisterAccessor
@@ -39,6 +40,12 @@ SIZE_KEY = "size"
 
 class ControllerError(BaseError):
     """Simple exception class to wrap lower-level exceptions."""
+
+class RegisterParamTree(TypedDict, total=False):
+    value: tuple[Callable[[], int], Callable[[int | bytes], None] | None, dict]
+    address: tuple[int, None]
+    access_policy: str
+    fields: dict
 
 
 class RegisterAccessorController(BaseController):
@@ -85,7 +92,6 @@ class RegisterAccessorController(BaseController):
         # calc frequency needed for callback so every desired polling frequency is covered
         if self.polled_registers:
             all_freq = [reg.poll_freq for reg in self.polled_registers]
-            logging.debug(all_freq)
             poll_freq = math.gcd(*all_freq)
             logging.debug("Polling loop frequency is %d", poll_freq)
             self.background_polling = PeriodicCallback(self.polling_loop, poll_freq)
@@ -118,24 +124,31 @@ class RegisterAccessorController(BaseController):
     
     def create_paramTree(self, node: dict | Register):
         if isinstance(node, dict):
-            # logging.debug("DICT KEYS: %s", node.keys())
             return {k: self.create_paramTree(v) for k, v in node.items()}
         elif isinstance(node, Register):
-            # logging.debug("REGISTER NAME: %s", node.name)
             return self.create_reg_paramTree(node)
 
-    def create_reg_paramTree(self, reg: Register):
+    def create_reg_paramTree(self, reg: Register) -> RegisterParamTree:
+        """
+        Create a Param Tree style dictionary to access a regsiter value, its address, and any
+        fields it may have. Uses the Access Policy to ensure the correct read method is used.
         
+        :param reg: The Register the tree will communicate with
+        :type reg: Register
+        :return: A dict object that provides a ParamAccessor style **Value**, as well as other information
+        about the Register. It also provides a **Fields** subtree if bitfields are defined for the register.
+        :rtype: RegisterParamTree
+        """
         read_accessor = self.create_read_access_param(reg)
-
+        tree: RegisterParamTree
         tree = {
             "value": (
                 read_accessor,
                 None if not reg.write else partial(self.write_register, register=reg),
                 {"description": reg.desc}
             ),
-            "address": (reg.addr, None),
-            "access_policy": reg.policy
+            "address": (lambda: reg.addr, None),
+            "access_policy": (lambda: reg.policy, None)
         }
         if reg.bitFields:
             tree['fields'] = {
@@ -169,7 +182,7 @@ class RegisterAccessorController(BaseController):
             logging.debug("Creating Polled access param for register %s, at a frequency of %dms", reg.name, frequency)
             reg.poll_freq = frequency
             self.polled_registers.append(reg)
-            return partial(self.poll_reg_read, register=reg)
+            return partial(self.static_reg_read, register=reg)
         else:
             raise ControllerError("Access Policy '%s' not recognised for register %s at addr %X", policy, reg.name, reg.addr)
 
@@ -179,17 +192,7 @@ class RegisterAccessorController(BaseController):
         Otherwise, read from the register and save the value locally
         """
         if not register.value and self.accessor.isConnected:  # is the reg bytearray empty? is the accessor open?
-            logging.debug("First Read on static reg %s", register.name)
-            register.value = self.accessor.read(register.addr, register.size)
-        return int.from_bytes(register.value, sys.byteorder)
-
-    def poll_reg_read(self, register: Register):
-        """
-        Read the value from the register, which is read from the polling loop
-        if the value has not yet been read at all by the loop, behave like the static register read
-        """
-        if not register.value and self.accessor.isConnected:
-            logging.debug("Polled register %s not yet populated. Statically reading", register.name)
+            logging.debug("First Read on %s reg %s", register.policy, register.name)
             register.value = self.accessor.read(register.addr, register.size)
         return int.from_bytes(register.value, sys.byteorder)
 
@@ -200,7 +203,7 @@ class RegisterAccessorController(BaseController):
         if isinstance(register, int):
             reg = self.registers.get(register)
             if reg is None:
-                raise ControllerError("Unable to read address {:X}: Not found in register map".format(register))
+                raise ControllerError("Unable to read address %X: Not found in register map", register)
         else:
             reg = register
 
@@ -209,7 +212,7 @@ class RegisterAccessorController(BaseController):
                 reg.value = self.accessor.read(reg.addr, reg.size)
             return int.from_bytes(reg.value, sys.byteorder)
         else:
-            raise ControllerError("Unable to read register {}: Register not readable".format(reg.name))
+            raise ControllerError("Unable to read register %s: Register not readable", reg.name)
 
     def write_register(self, value: int | bytes, register: Register):
         """
@@ -234,9 +237,8 @@ class RegisterAccessorController(BaseController):
             else:
                 register.value = byteVal
         else:
-            raise ControllerError(("Unable to write to register {}: {}"
-                                   .format(register.name,
-                                           "Not connected" if register.write else "Register not writeable")))
+            raise ControllerError("Unable to write to register %s: %s", register.name,
+                                  "Not connected" if register.write else "Register not writeable")
 
     def read_field(self, register: "Register", bitField: BitField) -> int:
         val = int.from_bytes(register.value, sys.byteorder)

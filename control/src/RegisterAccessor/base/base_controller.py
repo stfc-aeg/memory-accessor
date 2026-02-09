@@ -1,7 +1,13 @@
 from abc import ABC, abstractmethod
 
 class BaseError(Exception):
-    pass
+        
+    def __str__(self):
+        try:
+            return str(self.args[0]) % self.args[1:]
+        except TypeError:
+            return super().__str__()
+
 
 class BaseController(ABC):
 

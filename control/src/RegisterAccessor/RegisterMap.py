@@ -6,6 +6,7 @@ import logging
 from typing import Union, TypeAlias
 
 from dataclasses import dataclass, field, fields, _MISSING_TYPE
+from collections.abc import Iterable
 
 from RegisterAccessor.base.base_controller import BaseError
 
@@ -75,7 +76,6 @@ class RegisterMap():
             raise RegisterMapError("Register Map File \"%s\" is invalid file type", reg_file)
         
         if not self.policy_file or not self.policy_file.exists():
-            logging.info("Policy file invalid/Not provided")
             self.policy_overwrites = {}
         else:
             with open(self.policy_file) as f:
@@ -92,10 +92,13 @@ class RegisterMap():
         
         # register map now saved and standardised between file types. Apply any additional policy overwrites
         for regName, policy in self.policy_overwrites.items():
-            regs = self.getReg(regName, self.map)
-            for reg in regs:
-                reg.policy = policy.get("policy", reg.policy)
-                reg.poll_freq = policy.get("frequency", reg.poll_freq)
+            try:
+                regs = self.getReg(regName, self.map)
+                for reg in regs:
+                    reg.policy = policy.get("policy", reg.policy)
+                    reg.poll_freq = policy.get("frequency", reg.poll_freq)
+            except RegisterMapError:
+                logging.warning("Register: %s not found in map, cannot apply policy", regName)
 
     def read_xml_map(self, path: pathlib.Path):
         root = ET.parse(path).getroot()
@@ -166,15 +169,22 @@ class RegisterMap():
             
             return node
     
-    def getReg(self, path: str, map: RegisterMapDict | None = None):
+    def getReg(self, path: str, map: RegisterMapDict | None = None) -> Iterable[Register]:
         """
-        Get a list of all registers that match with the Path provided
+        Get an iterator of all registers that match with the Path provided
         If path contains a "/", it is assumed to be a full path to a specific reg
         If not, it is assumed to be just the name of the register(s) desired
+
+        :param path: Name of the register, or path to its specific location in the mao
+        :type path: str
+        :param map: Register Map Dictionary to search through. If None provided, uses `self.map`
+        :type map: RegisterMapDict | None
+        :return: A generator/iterable of Registers.
+        :rtype: Iterable[Register]
+
+        :raises RegisterMapError: If the path provided does not resolve to a Register in the map
         """
-        if map is None:
-            map = self.map
-        subMap: dict[str, Register | dict] = map
+        subMap = map if map is not None else self.map
         if "/" in path:
             # is a direct path
             split_path = path.split("/")
@@ -187,14 +197,13 @@ class RegisterMap():
                     if isinstance(subMap, Register):
                         yield subMap
                 except (KeyError, ValueError):
-                    logging.error(map.keys())
                     raise RegisterMapError("Invalid Path: %s", path)
         else:
             # is just the register name. Return all registers with that name
             for k, v in subMap.items():
                 if k == path and isinstance(v, Register):
                     yield v
-                if isinstance(v, dict):
+                elif isinstance(v, dict):
                     for result in self.getReg(path, v):
                         yield result
 
